@@ -21,6 +21,7 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _startup = new();
     private readonly CheckBox _dark = new();
     private readonly CheckBox _expiryScan = new();
+    private readonly CheckBox _actionScan = new();
     private readonly NumericUpDown _poll = new();
     private readonly NumericUpDown _minAge = new();
     private readonly NumericUpDown _review = new();
@@ -231,18 +232,19 @@ public sealed class SettingsForm : Form
         rem.Controls.Add(Reg(new Label { AutoSize = true, Margin = new Padding(0, 0, 0, 0) }, "remind_days"));
         rem.Controls.Add(remBoxes);
 
-        var bWrap = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, AutoSize = true };
-        _auto.AutoSize = true; _startup.AutoSize = true; _dark.AutoSize = true; _expiryScan.AutoSize = true;
+        var bWrap = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, AutoSize = true };
+        _auto.AutoSize = true; _startup.AutoSize = true; _dark.AutoSize = true; _expiryScan.AutoSize = true; _actionScan.AutoSize = true;
         _dark.CheckedChanged += (_, _) => { Theme.IsDark = _dark.Checked; Theme.Apply(this); };
         bWrap.Controls.Add(Reg(_auto, "auto"), 0, 0);
         bWrap.Controls.Add(Reg(_expiryScan, "expiry_scan"), 0, 1);
         bWrap.Controls.Add(rem, 0, 2);
-        bWrap.Controls.Add(Reg(_startup, "startup"), 0, 3);
-        bWrap.Controls.Add(Reg(_dark, "dark_mode"), 0, 4);
-        bWrap.Controls.Add(grid, 0, 5);
-        bWrap.Controls.Add(rev, 0, 6);
+        bWrap.Controls.Add(Reg(_actionScan, "act_scan"), 0, 3);
+        bWrap.Controls.Add(Reg(_startup, "startup"), 0, 4);
+        bWrap.Controls.Add(Reg(_dark, "dark_mode"), 0, 5);
+        bWrap.Controls.Add(grid, 0, 6);
+        bWrap.Controls.Add(rev, 0, 7);
         gBehavior.Controls.Add(bWrap);
-        gBehavior.Height = 286;
+        gBehavior.Height = 312;
         sections.Add(gBehavior);
 
         // sorting schemes (music / movies / invoices)
@@ -402,6 +404,7 @@ public sealed class SettingsForm : Form
         _startup.Checked = Startup.IsEnabled;
         _dark.Checked = _cfg.DarkMode;
         _expiryScan.Checked = _cfg.ExpiryScan;
+        _actionScan.Checked = _cfg.ActionScan;
         var rd = _cfg.ReminderDays;
         _r1.Value = Math.Min(rd.Count > 0 ? rd[0] : 90, _r1.Maximum);
         _r2.Value = Math.Min(rd.Count > 1 ? rd[1] : 30, _r2.Maximum);
@@ -489,6 +492,7 @@ public sealed class SettingsForm : Form
         _cfg.Rules = _rulesList.Items.Cast<RuleEntry>().ToList();
         _cfg.AutoOrganize = _auto.Checked; // persist the auto-move state
         _cfg.ExpiryScan = _expiryScan.Checked;
+        _cfg.ActionScan = _actionScan.Checked;
         _cfg.ReminderDays = new[] { (int)_r1.Value, (int)_r2.Value, (int)_r3.Value }
             .Where(x => x > 0).Distinct().OrderByDescending(x => x).ToList();
         _cfg.DarkMode = _dark.Checked; Theme.IsDark = _dark.Checked;
@@ -917,11 +921,97 @@ public sealed class ExpiryForm : Form
         bar.Controls.Add(addManual);
         bar.Controls.Add(add);
 
+        // Action Inbox band: obligations found inside filed letters, awaiting a
+        // decision. Sits between the tabs and the list; hidden when empty.
+        _actionBand.Dock = DockStyle.Top;
+        _actionBand.Padding = new Padding(12, 6, 12, 8);
+        _actionBand.Visible = false;
+
         Controls.Add(_list);
+        Controls.Add(_actionBand);
         Controls.Add(tabBar);
         Controls.Add(bar);
-        Load += (_, _) => { ApplyScheme(); UpdateTabs(); Refresh4(); };
+        Load += (_, _) => { ApplyScheme(); UpdateTabs(); Refresh4(); RefreshActions(); };
         Theme.Apply(this);
+    }
+
+    private readonly Panel _actionBand = new();
+
+    /// <summary>Rebuild the "Needs action" band from pending Action Inbox items.</summary>
+    private void RefreshActions()
+    {
+        var pending = ActionInbox.Pending();
+        _actionBand.Controls.Clear();
+        if (pending.Count == 0) { _actionBand.Visible = false; return; }
+
+        bool dark = Theme.IsDark;
+        _actionBand.BackColor = dark ? Color.FromArgb(52, 46, 20) : Color.FromArgb(255, 248, 220);
+        var fg = dark ? Color.FromArgb(235, 225, 180) : Color.FromArgb(90, 70, 10);
+
+        const int shown = 3;
+        var rows = new List<Control>();
+        var head = new Label
+        {
+            Text = string.Format(L.S("act_band_title"), pending.Count),
+            Dock = DockStyle.Top, Height = 26, ForeColor = fg,
+            Font = new Font("Segoe UI", 9.75f, FontStyle.Bold), Padding = new Padding(0, 4, 0, 0),
+        };
+        foreach (var it in pending.Take(shown))
+        {
+            var row = new Panel { Dock = DockStyle.Top, Height = 34, Padding = new Padding(0, 3, 0, 3) };
+            var dismiss = new Button
+            {
+                Text = L.S("act_dismiss"), Dock = DockStyle.Right, Width = 92, FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand, ForeColor = fg, Font = new Font("Segoe UI", 8.75f),
+            };
+            dismiss.FlatAppearance.BorderColor = Color.FromArgb(200, 180, 120);
+            var add = new Button
+            {
+                Text = L.S("act_add"), Dock = DockStyle.Right, Width = 130, FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand, BackColor = Theme.Accent, ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8.75f, FontStyle.Bold), Tag = "primary",
+            };
+            add.FlatAppearance.BorderColor = Theme.Accent;
+            var txt = new Label
+            {
+                Dock = DockStyle.Fill, AutoEllipsis = true, ForeColor = fg,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Text = $"{it.Date}  ·  „{it.Quote}”" + (it.Sender.Length > 0 ? $"  ({it.Sender})" : ""),
+            };
+            var item = it; // capture
+            add.Click += (_, _) =>
+            {
+                ActionInbox.Accept(item);
+                _filter = "task"; ApplyScheme(); UpdateTabs(); Refresh4(); RefreshActions();
+            };
+            dismiss.Click += (_, _) =>
+            {
+                bool mute = item.Sender.Length > 0 &&
+                    MessageBox.Show(this, string.Format(L.S("act_mute_q"), item.Sender), Text,
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+                ActionInbox.Dismiss(item, mute);
+                RefreshActions();
+            };
+            row.Controls.Add(txt);
+            row.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 6 });
+            row.Controls.Add(add);
+            row.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 6 });
+            row.Controls.Add(dismiss);
+            rows.Add(row);
+        }
+        if (pending.Count > shown)
+            rows.Add(new Label
+            {
+                Text = string.Format(L.S("act_more"), pending.Count - shown),
+                Dock = DockStyle.Top, Height = 20, ForeColor = fg, Font = new Font("Segoe UI", 8.75f),
+            });
+
+        // add bottom-up so the header ends on top
+        for (int i = rows.Count - 1; i >= 0; i--) _actionBand.Controls.Add(rows[i]);
+        _actionBand.Controls.Add(head);
+        head.SendToBack(); // Top-docked: last in z-order sits highest
+        _actionBand.Height = 26 + rows.Sum(r => r.Height) + 16;
+        _actionBand.Visible = true;
     }
 
     // Column layouts per category. Documents/renewals keep the classic document

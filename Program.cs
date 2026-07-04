@@ -17,6 +17,18 @@ internal static class Program
             {
                 case "--register": Startup.Set(true); return;
                 case "--unregister": Startup.Set(false); return;
+                case "--acttest": // hidden QA: extract obligations from text/file; arg2 "llm" forces the model path
+                {
+                    var c = Config.Load();
+                    var input = args.Length >= 2 ? args[1] : "";
+                    var text = System.IO.File.Exists(input) ? Extractor.Snippet(input, 4000) : input;
+                    bool llm = args.Length > 2 && args[2] == "llm";
+                    var found = ActionExtractor.Extract(System.IO.Path.GetFileName(input), text, c.OllamaUrl, c.OllamaModel, llm);
+                    var sb = new System.Text.StringBuilder($"found: {found.Count} (llm={llm})\n");
+                    foreach (var f in found) sb.AppendLine($"{f.Kind} | {f.DateIso} | sender='{f.Sender}' | \"{f.Quote}\"");
+                    System.IO.File.WriteAllText("act-result.txt", sb.ToString());
+                    return;
+                }
                 case "--duptest": // hidden QA: find duplicates under a folder (exact + similar)
                 {
                     var exact = DuplicateFinder.FindExact(args[1]);

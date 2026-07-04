@@ -64,6 +64,9 @@ public sealed class Config
     // Auto-read expiry dates from documents (passport, visa, insurance…) and
     // remind you before they lapse. Works even without the AI (regex over text).
     public bool ExpiryScan { get; set; } = true;
+    // Scan filed letters for obligations with deadlines ("pay by…", "respond
+    // within 28 days") and suggest them in the Action Inbox. Nothing auto-added.
+    public bool ActionScan { get; set; } = true;
     // How many days before an expiry to remind you. Up to three lead times — the
     // default is 3 months, 1 month and 1 week. A document can override these.
     public List<int> ReminderDays { get; set; } = new() { 90, 30, 7 };

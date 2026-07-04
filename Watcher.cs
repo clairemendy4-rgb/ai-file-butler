@@ -75,6 +75,27 @@ public sealed class Watcher
         lock (_lock) return BuildMoves();
     }
 
+    // Look for obligations with deadlines in a filed letter and suggest them in the
+    // Action Inbox (background; user accepts/dismisses — nothing is added silently).
+    private void ScanActions(string dst, string fileName, string snippet)
+    {
+        if (!_cfg.ActionScan || string.IsNullOrWhiteSpace(snippet)) return;
+        var url = _cfg.OllamaUrl; var model = _cfg.OllamaModel;
+        bool tryLlm = Backend == "ollama";
+        Task.Run(() =>
+        {
+            try
+            {
+                int added = 0;
+                foreach (var f in ActionExtractor.Extract(fileName, snippet, url, model, tryLlm))
+                    if (ActionInbox.Suggest(dst, f.Quote, f.Kind, f.DateIso, f.Sender)) added++;
+                if (added > 0)
+                    Notify?.Invoke(EventKind.Info, string.Format(L.S("n_actions_found"), added, fileName));
+            }
+            catch { }
+        });
+    }
+
     // Add a filed document to the semantic search index in the background (best effort;
     // no-op if the embedding model isn't available).
     private void IndexDoc(string path, string folder, string snippet)
@@ -133,6 +154,7 @@ public sealed class Watcher
                     _learner.RecordPlacement(m.Plan.Dst, m.File.Name, m.Plan.Category);
                     RecordExpiry(m.Plan.Dst, m.File, m.Snippet, m.Sug);
                     IndexDoc(m.Plan.Dst, Config.FolderFor(m.Plan.Category), m.Snippet);
+                    ScanActions(m.Plan.Dst, m.File.Name, m.Snippet);
                     _seenSizes.Remove(m.File.FullName);
                     SessionCount++;
                     applied.Add(m.Plan);
